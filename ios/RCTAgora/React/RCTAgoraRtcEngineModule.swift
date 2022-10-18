@@ -8,6 +8,7 @@
 
 import Foundation
 import AgoraRtcKit
+import DeepAR
 
 @objc(RCTAgoraRtcEngineModule)
 class RCTAgoraRtcEngineModule: RCTEventEmitter {
@@ -67,6 +68,10 @@ class RCTAgoraRtcEngineModule: RCTEventEmitter {
 
     weak var engine: AgoraRtcEngineKit? {
         return manager?.engine
+    }
+    
+    weak var deepAr: DeepAR? {
+        return manager?.deepAr
     }
 
     @objc func callMethod(_ methodName: String, _ params: NSDictionary?, _ resolve: RCTPromiseResolveBlock?, _ reject: RCTPromiseRejectBlock?) {

@@ -8,12 +8,14 @@
 
 import Foundation
 import AgoraRtcKit
+import DeepAR
 
 @objc(RCTAgoraRtcSurfaceViewManager)
 class RCTAgoraRtcSurfaceViewManager: RCTViewManager {
     override func view() -> UIView! {
         let view = RtcView()
         view.setEngine(engine)
+        view.setDeepAr(deepAr)
         view.setChannel(channel(_:))
         return view
     }
@@ -29,6 +31,10 @@ class RCTAgoraRtcSurfaceViewManager: RCTViewManager {
     private func engine() -> AgoraRtcEngineKit? {
         return (bridge.module(for: RCTAgoraRtcEngineModule.classForCoder()) as? RCTAgoraRtcEngineModule)?.engine
     }
+    
+    private func deepAr() -> DeepAR? {
+        return (bridge.module(for: RCTAgoraRtcEngineModule.classForCoder()) as? RCTAgoraRtcEngineModule)?.deepAr
+    }
 
     private func channel(_ channelId: String) -> AgoraRtcChannel? {
         return (bridge.module(for: RCTAgoraRtcChannelModule.classForCoder()) as? RCTAgoraRtcChannelModule)?.channel(channelId)
@@ -38,10 +44,15 @@ class RCTAgoraRtcSurfaceViewManager: RCTViewManager {
 @objc(RtcView)
 class RtcView: RtcSurfaceView {
     private var getEngine: (() -> AgoraRtcEngineKit?)?
+    private var getDeepAr: (() -> DeepAR?)?
     private var getChannel: ((_ channelId: String) -> AgoraRtcChannel?)?
 
     func setEngine(_ getEngine: @escaping () -> AgoraRtcEngineKit?) {
         self.getEngine = getEngine
+    }
+    
+    func setDeepAr(_ getDeepAr: @escaping () -> DeepAR?) {
+        self.getDeepAr = getDeepAr
     }
 
     func setChannel(_ getChannel: @escaping (_ channelId: String) -> AgoraRtcChannel?) {
@@ -64,7 +75,11 @@ class RtcView: RtcSurfaceView {
             channel = getChannel?(channelId)
         }
         if let engine = getEngine?() {
-            setData(engine, channel, (data["uid"] as! NSNumber).uintValue)
+            if let deepAr = getDeepAr?() {
+                setData(engine, deepAr, channel, (data["uid"] as! NSNumber).uintValue)
+            } else {
+                setData(engine, nil, channel, (data["uid"] as! NSNumber).uintValue)
+            }
         }
     }
 

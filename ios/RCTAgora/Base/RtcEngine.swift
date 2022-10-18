@@ -8,6 +8,7 @@
 
 import AgoraRtcKit
 import Foundation
+import DeepAR
 
 protocol RtcEngineInterface:
         RtcEngineUserInfoInterface,
@@ -97,6 +98,8 @@ protocol RtcEngineInterface:
     func setAgoraLibPath(_ params: NSDictionary, _ callback: Callback)
 
     func setAVSyncSource(_ params: NSDictionary, _ callback: Callback)
+    
+    func switchDeepArEffect(_ params: NSDictionary, _ callback: Callback)
 }
 
 protocol RtcEngineUserInfoInterface {
@@ -444,9 +447,16 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     private var emitter: (_ methodName: String, _ data: [String: Any?]?) -> Void
     private var agoraRtcEngineKitFactory: AgoraRtcEngineKitFactory
     private(set) var engine: AgoraRtcEngineKit?
+    private(set) var deepAr: DeepAR?
     private var delegate: RtcEngineEventHandler?
     private var mediaObserver: MediaObserver?
     private var mediaRecorder: AgoraMediaRecorder?
+    public var deepARWidth: NSNumber?
+    public var deepARHeight: NSNumber?
+
+    //private var arView: ARView!
+    //private var cameraController: CameraController!
+    //@IBOutlet weak var arViewContainer: UIView!
 
     init(_ emitter: @escaping (_ methodName: String, _ data: [String: Any?]?) -> Void,
          _ agoraRtcEngineKitFactory: AgoraRtcEngineKitFactory = AgoraRtcEngineKitFactory()) {
@@ -475,6 +485,20 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
         callback.code(engine?.setAppType(AgoraRtcAppType(rawValue: (params["appType"] as! NSNumber).uintValue)!)) {
             RtcEngineRegistry.shared.onRtcEngineCreated(self.engine)
             return $0
+        }
+        
+        if let config = params["config"] as? [String: Any] {
+            if let deepARKey = config["deepARKey"] as? String {
+                if let configDeepArWidth = config["deepARWidth"] as? NSNumber {
+                    deepARWidth = configDeepArWidth
+                }
+                if let configDeepArHeight = config["deepARHeight"] as? NSNumber {
+                    deepARHeight = configDeepArHeight
+                }
+                deepAr = DeepAR()
+                deepAr?.setLicenseKey(deepARKey)
+                deepAr?.delegate = self
+            }
         }
     }
 
@@ -508,7 +532,20 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
             callback.code(engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue, options: mapToChannelMediaOptions(options)))
             return
         }
-        callback.code(engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue))
+        if (self.deepAr != nil) {
+            callback.code(
+                engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue) { [unowned self] (channel, uid, elapsed) -> Void in
+                    self.deepAr?.startCapture(
+                        withOutputWidth: deepARWidth?.intValue ?? 720,
+                        outputHeight: deepARHeight?.intValue ?? 1280,
+                        subframe: CGRect(x: 0.0, y: 0.0, width: 1.0, height: 1.0)
+                    )
+                }
+            )
+        } else {
+            callback.code(engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue))
+        }
+
     }
 
     @objc func switchChannel(_ params: NSDictionary, _ callback: Callback) {
@@ -522,6 +559,9 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     }
 
     @objc func leaveChannel(_ callback: Callback) {
+        if (self.deepAr != nil) {
+            self.deepAr?.stopCapture()
+        }
         callback.code(engine?.leaveChannel())
     }
 
@@ -1306,5 +1346,46 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
 
     @objc func setAVSyncSource(_ params: NSDictionary, _ callback: Callback) {
         callback.code(engine?.setAVSyncSource(params["channelId"] as? String, uid: (params["uid"] as! NSNumber).uintValue))
+    }
+    
+    @objc func switchDeepArEffect(_ params: NSDictionary, _ callback: Callback) {
+        let path = Bundle.main.path(forResource: String(params["name"] as! NSString), ofType: "")
+        deepAr?.switchEffect(withSlot: String(params["slot"] as! NSString), path: path)
+        callback.code(0)
+    }
+}
+
+extension RtcEngineManager: DeepARDelegate {
+    func didFinishPreparingForVideoRecording() {}
+
+    func didStartVideoRecording() {}
+
+    func frameAvailable(_ sampleBuffer: CMSampleBuffer!) {
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            print("*** NO BUFFER ERROR")
+            return
+        }
+
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+
+        let videoFrame = AgoraVideoFrame()
+        videoFrame.format = 12
+        videoFrame.time = time
+        videoFrame.textureBuf = pixelBuffer
+        videoFrame.rotation = 0
+
+        engine?.pushExternalVideoFrame(videoFrame)
+    }
+
+    func didFinishVideoRecording(_ videoFilePath: String!) {}
+
+    func recordingFailedWithError(_ error: Error!) {}
+
+    func didTakeScreenshot(_ screenshot: UIImage!) {}
+
+    func didInitialize() {}
+
+    func faceVisiblityDidChange(_ faceVisible: Bool) {
     }
 }
