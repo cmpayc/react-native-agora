@@ -451,12 +451,11 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     private var delegate: RtcEngineEventHandler?
     private var mediaObserver: MediaObserver?
     private var mediaRecorder: AgoraMediaRecorder?
+    public var cameraController: CameraController!
+    public var arView: ARView!
     public var deepARWidth: NSNumber?
     public var deepARHeight: NSNumber?
-
-    //private var arView: ARView!
-    //private var cameraController: CameraController!
-    //@IBOutlet weak var arViewContainer: UIView!
+    public var isJoined: Bool?
 
     init(_ emitter: @escaping (_ methodName: String, _ data: [String: Any?]?) -> Void,
          _ agoraRtcEngineKitFactory: AgoraRtcEngineKitFactory = AgoraRtcEngineKitFactory()) {
@@ -473,6 +472,14 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
             AgoraRtcEngineKit.destroy()
             engine = nil
         }
+        if (deepAr != nil) {
+            deepAr?.shutdown()
+            deepAr = nil
+        }
+        if (cameraController != nil) {
+            cameraController?.stopCamera()
+            cameraController = nil
+        }
         delegate = nil
         mediaObserver = nil
     }
@@ -486,7 +493,6 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
             RtcEngineRegistry.shared.onRtcEngineCreated(self.engine)
             return $0
         }
-        
         if let config = params["config"] as? [String: Any] {
             if let deepARKey = config["deepARKey"] as? String {
                 if let configDeepArWidth = config["deepARWidth"] as? NSNumber {
@@ -498,6 +504,19 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
                 deepAr = DeepAR()
                 deepAr?.setLicenseKey(deepARKey)
                 deepAr?.delegate = self
+                
+                cameraController = CameraController()
+                cameraController.deepAR = deepAr
+                
+                let rect = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: deepARWidth?.intValue ?? 720,
+                    height: deepARHeight?.intValue ?? 1280
+                )
+                let rectView = UIView(frame: rect)
+                arView = deepAr?.createARView(withFrame: rectView.frame) as! ARView
+                arView.translatesAutoresizingMaskIntoConstraints = false
             }
         }
     }
@@ -533,15 +552,14 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
             return
         }
         if (self.deepAr != nil) {
-            callback.code(
-                engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue) { [unowned self] (channel, uid, elapsed) -> Void in
-                    self.deepAr?.startCapture(
-                        withOutputWidth: deepARWidth?.intValue ?? 720,
-                        outputHeight: deepARHeight?.intValue ?? 1280,
-                        subframe: CGRect(x: 0.0, y: 0.0, width: 1.0, height: 1.0)
-                    )
-                }
-            )
+            if (cameraController != nil) {
+                cameraController?.stopCamera()
+            }
+            let joinChannelResult = engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue)
+            callback.code(joinChannelResult)
+            if (joinChannelResult == 0) {
+                self.isJoined = true;
+            }
         } else {
             callback.code(engine?.joinChannel(byToken: token, channelId: channelName, info: optionalInfo, uid: optionalUid.uintValue))
         }
@@ -561,6 +579,9 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     @objc func leaveChannel(_ callback: Callback) {
         if (self.deepAr != nil) {
             self.deepAr?.stopCapture()
+        }
+        if (cameraController != nil) {
+            cameraController?.stopCamera()
         }
         callback.code(engine?.leaveChannel())
     }
@@ -719,11 +740,15 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     }
 
     @objc func startPreview(_ callback: Callback) {
-        callback.code(engine?.startPreview())
+        let startPreviewResult = engine?.startPreview()
+        callback.code(startPreviewResult)
     }
 
     @objc func stopPreview(_ callback: Callback) {
         callback.code(engine?.stopPreview())
+        if (cameraController != nil) {
+            cameraController.stopCamera()
+        }
     }
 
     @objc func enableLocalVideo(_ params: NSDictionary, _ callback: Callback) {
@@ -731,7 +756,20 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     }
 
     @objc func muteLocalVideoStream(_ params: NSDictionary, _ callback: Callback) {
-        callback.code(engine?.muteLocalVideoStream(params["muted"] as! Bool))
+        if (cameraController != nil) {
+            if (params["muted"] as! Bool) {
+                deepAr?.stopCapture()
+            } else {
+                deepAr?.startCapture(
+                    withOutputWidth: deepARWidth?.intValue ?? 720,
+                    outputHeight: deepARHeight?.intValue ?? 1280,
+                    subframe: CGRect(x: 0.0, y: 0.0, width: 1.0, height: 1.0)
+                )
+            }
+            callback.code(0)
+        } else {
+            callback.code(engine?.muteLocalVideoStream(params["muted"] as! Bool))
+        }
     }
 
     @objc func muteRemoteVideoStream(_ params: NSDictionary, _ callback: Callback) {
@@ -1143,7 +1181,13 @@ class RtcEngineManager: NSObject, RtcEngineInterface {
     }
 
     @objc func switchCamera(_ callback: Callback) {
-        callback.code(engine?.switchCamera())
+        if (cameraController != nil) {
+            let position: AVCaptureDevice.Position = cameraController.position == .back ? .front : .back
+            cameraController.position = position
+            callback.code(0)
+        } else {
+            callback.code(engine?.switchCamera())
+        }
     }
 
     @objc func isCameraZoomSupported(_ callback: Callback) {

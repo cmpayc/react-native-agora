@@ -10,8 +10,6 @@ class RtcSurfaceView: UIView {
     private var engine: AgoraRtcEngineKit?
     private var deepAr: DeepAR?
     private var rtcEngineManager: RtcEngineManager?
-    private var arView: ARView!
-    private var cameraController: CameraController!
 
     override init(frame: CGRect) {
         surface = UIView(frame: CGRect(origin: CGPoint(x: 0, y: 0), size: frame.size))
@@ -72,32 +70,29 @@ class RtcSurfaceView: UIView {
         surface = UIView(frame: CGRect(origin: CGPoint(x: 0, y: 0), size: bounds.size))
         
         if canvas.uid == 0 && self.deepAr != nil {
-            let deepARWidth = rtcEngineManager?.deepARWidth?.intValue ?? 720
-            let deepARHeight = rtcEngineManager?.deepARHeight?.intValue ?? 1280
-            let rect = CGRect(
-                x: 0,
-                y: 0,
-                width: deepARWidth,
-                height: deepARHeight
-            )
-            let rectView = UIView(frame: rect)
-            arView = self.deepAr?.createARView(withFrame: rectView.frame) as! ARView
-            arView.translatesAutoresizingMaskIntoConstraints = false
-            
-            surface.addSubview(arView)
-            
-            let ratio = rect.size.height / CGFloat(deepARHeight)
-            surface.transform = CGAffineTransformScale(CGAffineTransformIdentity, ratio, ratio)
-            arView.heightAnchor.constraint(equalToConstant: CGFloat(deepARHeight)).isActive = true
-            arView.widthAnchor.constraint(equalToConstant: CGFloat(deepARWidth)).isActive = true
-            arView.centerYAnchor.constraint(equalTo: surface.centerYAnchor, constant: 0).isActive = true
-            arView.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: 0).isActive = true
-            
-            addSubview(surface)
-            
-            self.cameraController = CameraController()
-            self.cameraController.deepAR = self.deepAr
-            self.cameraController.startCamera()
+            if let arView = rtcEngineManager?.arView as? ARView {
+                let deepARWidth = rtcEngineManager?.deepARWidth?.intValue ?? 720
+                let deepARHeight = rtcEngineManager?.deepARHeight?.intValue ?? 1280
+                let rect = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: deepARWidth,
+                    height: deepARHeight
+                )
+
+                surface.addSubview(arView)
+                
+                let ratio = rect.size.height / CGFloat(deepARHeight)
+                surface.transform = CGAffineTransform.identity.scaledBy(x: ratio, y: ratio)
+                arView.heightAnchor.constraint(equalToConstant: CGFloat(deepARHeight)).isActive = true
+                arView.widthAnchor.constraint(equalToConstant: CGFloat(deepARWidth)).isActive = true
+                arView.centerYAnchor.constraint(equalTo: surface.centerYAnchor, constant: 0).isActive = true
+                arView.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: 0).isActive = true
+                
+                addSubview(surface)
+            }
+
+            rtcEngineManager?.cameraController?.startCamera()
             
             engine.setExternalVideoSource(true, useTexture: true, pushMode: true)
         } else if canvas.uid == 0 {
@@ -141,15 +136,23 @@ class RtcSurfaceView: UIView {
         if keyPath == observerForKeyPath() {
             if let rect = change?[.newKey] as? CGRect {
                 surface.frame = CGRect(origin: CGPoint(x: 0, y: 0), size: rect.size)
-                if (arView != nil) {
+                if let arView = rtcEngineManager?.arView as? ARView {
                     let deepARWidth = rtcEngineManager?.deepARWidth?.intValue ?? 720
                     let deepARHeight = rtcEngineManager?.deepARHeight?.intValue ?? 1280
                     let ratio = rect.size.height / CGFloat(deepARHeight)
-                    surface.transform = CGAffineTransformScale(CGAffineTransformIdentity, ratio, ratio)
+                    surface.transform = CGAffineTransform.identity.scaledBy(x: ratio, y: ratio)
                     arView.heightAnchor.constraint(equalToConstant: CGFloat(deepARHeight)).isActive = true
                     arView.widthAnchor.constraint(equalToConstant: CGFloat(deepARWidth)).isActive = true
                     arView.centerYAnchor.constraint(equalTo: surface.centerYAnchor, constant: 0).isActive = true
                     arView.centerXAnchor.constraint(equalTo: surface.centerXAnchor, constant: 0).isActive = true
+                    
+                    if (rtcEngineManager?.isJoined ?? false) {
+                        self.deepAr?.startCapture(
+                            withOutputWidth: deepARWidth,
+                            outputHeight: deepARHeight,
+                            subframe: CGRect(x: 0.0, y: 0.0, width: 1.0, height: 1.0)
+                        )
+                    }
                 }
             }
         }
